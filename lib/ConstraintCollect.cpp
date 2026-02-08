@@ -381,7 +381,7 @@ void Andersen::addConstraintForCall(const CallBase* cs) {
       }
     } else // Non-external function call
     {
-      if (cs->getType()->isPointerTy()) {
+      if (cs->getCalledFunction()->getReturnType()->isPointerTy()) {
         NodeIndex retIndex = nodeFactory.getValueNodeFor(cs);
         assert(retIndex != AndersNodeFactory::InvalidIndex &&
                "Failed to find ret node!");
