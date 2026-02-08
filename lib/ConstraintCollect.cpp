@@ -163,7 +163,7 @@ void Andersen::collectConstraintsForInstruction(const Instruction *inst) {
   }
   case Instruction::Call:
   case Instruction::Invoke: {
-    ImmutableCallSite cs(inst);
+    const CallBase *cs = dyn_cast<CallBase>(inst);
     assert(cs && "Something wrong with callsite?");
 
     addConstraintForCall(cs);
@@ -348,8 +348,8 @@ void Andersen::collectConstraintsForInstruction(const Instruction *inst) {
 // There are two types of constraints to add for a function call:
 // - ValueNode(callsite) = ReturnNode(call target)
 // - ValueNode(formal arg) = ValueNode(actual arg)
-void Andersen::addConstraintForCall(ImmutableCallSite cs) {
-  if (const Function *f = cs.getCalledFunction()) // Direct call
+void Andersen::addConstraintForCall(const CallBase* cs) {
+  if (const Function *f = cs->getCalledFunction()) // Direct call
   {
     if (f->isDeclaration() || f->isIntrinsic()) // External library call
     {
@@ -359,15 +359,15 @@ void Andersen::addConstraintForCall(ImmutableCallSite cs) {
       else // Unresolved library call: ruin everything!
       {
         errs() << "Unresolved ext function: " << f->getName() << "\n";
-        if (cs.getType()->isPointerTy()) {
-          NodeIndex retIndex = nodeFactory.getValueNodeFor(cs.getInstruction());
+        if (cs->getFunctionType()->isPointerTy()) {
+          NodeIndex retIndex = nodeFactory.getValueNodeFor(cs);
           assert(retIndex != AndersNodeFactory::InvalidIndex &&
                  "Failed to find ret node!");
           constraints.emplace_back(AndersConstraint::COPY, retIndex,
                                    nodeFactory.getUniversalPtrNode());
         }
-        for (ImmutableCallSite::arg_iterator itr = cs.arg_begin(),
-                                             ite = cs.arg_end();
+        for (CallBase::const_op_iterator itr = cs->arg_begin(),
+                                             ite = cs->arg_end();
              itr != ite; ++itr) {
           Value *argVal = *itr;
           if (argVal->getType()->isPointerTy()) {
@@ -381,8 +381,8 @@ void Andersen::addConstraintForCall(ImmutableCallSite cs) {
       }
     } else // Non-external function call
     {
-      if (cs.getType()->isPointerTy()) {
-        NodeIndex retIndex = nodeFactory.getValueNodeFor(cs.getInstruction());
+      if (cs->getType()->isPointerTy()) {
+        NodeIndex retIndex = nodeFactory.getValueNodeFor(cs);
         assert(retIndex != AndersNodeFactory::InvalidIndex &&
                "Failed to find ret node!");
         // errs() << f->getName() << "\n";
@@ -398,8 +398,8 @@ void Andersen::addConstraintForCall(ImmutableCallSite cs) {
   {
     // We do the simplest thing here: just assume the returned value can be
     // anything :)
-    if (cs.getType()->isPointerTy()) {
-      NodeIndex retIndex = nodeFactory.getValueNodeFor(cs.getInstruction());
+    if (cs->getType()->isPointerTy()) {
+      NodeIndex retIndex = nodeFactory.getValueNodeFor(cs);
       assert(retIndex != AndersNodeFactory::InvalidIndex &&
              "Failed to find ret node!");
       constraints.emplace_back(AndersConstraint::COPY, retIndex,
@@ -409,15 +409,14 @@ void Andersen::addConstraintForCall(ImmutableCallSite cs) {
     // For argument constraints, first search through all addr-taken functions:
     // any function that takes can take as many variables is a potential
     // candidate
-    const Module *M =
-        cs.getInstruction()->getParent()->getParent()->getParent();
+    const Module *M = cs->getModule();
     for (auto const &f : *M) {
       NodeIndex funPtrIndex = nodeFactory.getValueNodeFor(&f);
       if (funPtrIndex == AndersNodeFactory::InvalidIndex)
         // Not an addr-taken function
         continue;
 
-      if (!f.getFunctionType()->isVarArg() && f.arg_size() != cs.arg_size())
+      if (!f.getFunctionType()->isVarArg() && f.arg_size() != cs->arg_size())
         // #arg mismatch
         continue;
 
@@ -427,8 +426,8 @@ void Andersen::addConstraintForCall(ImmutableCallSite cs) {
           continue;
         else {
           // Pollute everything
-          for (ImmutableCallSite::arg_iterator itr = cs.arg_begin(),
-                                               ite = cs.arg_end();
+          for (CallBase::User::const_op_iterator itr = cs->arg_begin(),
+                                               ite = cs->arg_end();
                itr != ite; ++itr) {
             Value *argVal = *itr;
 
@@ -447,11 +446,11 @@ void Andersen::addConstraintForCall(ImmutableCallSite cs) {
   }
 }
 
-void Andersen::addArgumentConstraintForCall(ImmutableCallSite cs,
+void Andersen::addArgumentConstraintForCall(const CallBase *cs,
                                             const Function *f) {
   Function::const_arg_iterator fItr = f->arg_begin();
-  ImmutableCallSite::arg_iterator aItr = cs.arg_begin();
-  while (fItr != f->arg_end() && aItr != cs.arg_end()) {
+  CallBase::User::const_op_iterator aItr = cs->arg_begin();
+  while (fItr != f->arg_end() && aItr != cs->arg_end()) {
     const Argument *formal = &*fItr;
     const Value *actual = *aItr;
 
@@ -474,7 +473,7 @@ void Andersen::addArgumentConstraintForCall(ImmutableCallSite cs,
 
   // Copy all pointers passed through the varargs section to the varargs node
   if (f->getFunctionType()->isVarArg()) {
-    while (aItr != cs.arg_end()) {
+    while (aItr != cs->arg_end()) {
       const Value *actual = *aItr;
       if (actual->getType()->isPointerTy()) {
         NodeIndex aIndex = nodeFactory.getValueNodeFor(actual);

@@ -6,9 +6,9 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Pass.h"
 
-class AndersenAAResult : public llvm::AAResultBase<AndersenAAResult> {
+class AndersenAAResult : public llvm::AAResultBase {
 private:
-  friend llvm::AAResultBase<AndersenAAResult>;
+  friend llvm::AAResultBase;
 
   Andersen anders;
   llvm::AliasResult andersenAlias(const llvm::Value *, const llvm::Value *);
